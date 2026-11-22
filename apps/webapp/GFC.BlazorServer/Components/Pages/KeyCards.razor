@@ -343,33 +343,48 @@
             @* Grace Period Compact Badge *@
             @if (_graceEndDate.HasValue && _activeTab != "temporary")
             {
-                var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
+                var today = DateTime.Today;
+                var graceDate = _graceEndDate.Value.Date;
+                var daysRemaining = (graceDate - today).Days;
                 
                 string badgeClass;
                 string remainingText;
+                string titleTooltip;
                 
                 if (daysRemaining > 15) {
                     badgeClass = "bg-success";
-                    remainingText = $"{daysRemaining} Days";
+                    remainingText = $"{daysRemaining} Days (Until {graceDate:MMM d})";
+                    titleTooltip = $"Grace period active until {graceDate:MMM d, yyyy}. Cards of members who paid last year remain active. Click to configure.";
                 } else if (daysRemaining > 1) {
-                    badgeClass = "bg-warning";
-                    remainingText = $"{daysRemaining} Days";
+                    badgeClass = "bg-warning text-dark";
+                    remainingText = $"{daysRemaining} Days Left (Until {graceDate:MMM d})";
+                    titleTooltip = $"Grace period ending soon on {graceDate:MMM d, yyyy}. Unpaid cards will deactivate automatically. Click to configure.";
                 } else if (daysRemaining == 1) {
                     badgeClass = "bg-danger";
-                    remainingText = "1 Day Left";
-                } else if (daysRemaining <= 0 && daysRemaining > -14) {
+                    remainingText = "1 Day Left (Expires Tomorrow)";
+                    titleTooltip = $"Grace period expires tomorrow ({graceDate:MMM d}). Click to configure.";
+                } else if (daysRemaining == 0) {
                     badgeClass = "bg-danger";
-                    remainingText = "Expired";
+                    remainingText = "Expires Today";
+                    titleTooltip = $"Grace period expires today ({graceDate:MMM d}). Unpaid cards will be deactivated tonight. Click to configure.";
+                } else if (daysRemaining < 0 && daysRemaining > -14) {
+                    badgeClass = "bg-danger";
+                    remainingText = $"Ended {graceDate:MMM d}";
+                    titleTooltip = $"Grace period for {graceDate.Year} ended on {graceDate:MMM d}. Unpaid cards have been deactivated. Click to configure.";
                 } else {
+                    var nextDeadline = new DateTime(today.Year + 1, _gracePeriodMonth, _gracePeriodDay);
                     badgeClass = "bg-secondary";
-                    remainingText = "Off";
+                    remainingText = $"Next: Jan 1 – {nextDeadline:MMM d}";
+                    titleTooltip = $"Grace period runs automatically from Jan 1 through {nextDeadline:MMM d, yyyy} for members who paid in {today.Year}. Click to configure recurring deadline.";
                 }
                 
                 <div class="badge @badgeClass text-white d-flex align-items-center gap-2 px-3 py-2 flex-grow-1 flex-lg-grow-0 justify-content-center" 
                      style="font-size: 0.85rem; cursor: pointer; font-weight: 600; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2); height: 38px;" 
-                     @onclick="EditGracePeriod">
+                     @onclick="EditGracePeriod"
+                     title="@titleTooltip">
                     <i class="bi bi-calendar-check"></i>
                     <span class="text-truncate">Grace: @remainingText</span>
+                    <i class="bi bi-pencil-fill ms-1" style="font-size: 0.7rem; opacity: 0.8;"></i>
                 </div>
             }
             
@@ -1075,10 +1090,15 @@
             <div class="modal-body-modern">
                 <div class="grace-period-config">
                     <div class="alert alert-info mb-4">
-                        <i class="bi bi-info-circle"></i>
+                        <i class="bi bi-info-circle fs-5"></i>
                         <div>
-                            <strong>About Grace Period:</strong>
-                            <p class="mb-0 small">Members who paid last year can continue using their key cards until this recurring date.</p>
+                            <strong>Automatic Schedule &amp; Rules:</strong>
+                            <p class="mb-1 small">
+                                <strong>Automatic Start:</strong> Every year on <strong>January 1st</strong>, members who paid the previous year automatically enter the grace period so their key cards stay active without interruption.
+                            </p>
+                            <p class="mb-0 small">
+                                <strong>Automatic Deactivation:</strong> If a member has not paid the new year's dues by this recurring deadline, their key card will be <strong>automatically deactivated</strong> at the controller on that night.
+                            </p>
                         </div>
                     </div>
 
@@ -1101,19 +1121,35 @@
                             </select>
                         </div>
                         <small class="text-muted">
-                            Setting "February 1st" means cards expire on February 1st, @DateTime.Today.Year.
+                            Example: Setting "@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth) @_gracePeriodDay" means members have until @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth) @_gracePeriodDay each year to pay before access is revoked.
                         </small>
                     </div>
 
                     <div class="summary-card mb-4">
                         <h6 class="mb-3">Summary</h6>
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="text-muted">Selected Date:</span>
-                            <strong>@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth) @_gracePeriodDay</strong>
+                            <span class="text-muted">Annual Window:</span>
+                            <strong>Jan 1 – @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth) @_gracePeriodDay</strong>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Current Status:</span>
+                            @{
+                                var today = DateTime.Today;
+                                var currentYearDeadline = new DateTime(today.Year, _gracePeriodMonth, _gracePeriodDay);
+                                if (today < currentYearDeadline)
+                                {
+                                    <span class="badge bg-success">Active (Ends @currentYearDeadline.ToString("MMM d, yyyy"))</span>
+                                }
+                                else
+                                {
+                                    var nextYearDeadline = new DateTime(today.Year + 1, _gracePeriodMonth, _gracePeriodDay);
+                                    <span class="badge bg-secondary">Next: Starts Jan 1, @(today.Year + 1) (Ends @nextYearDeadline.ToString("MMM d"))</span>
+                                }
+                            }
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted">Effect:</span>
-                            <span class="badge bg-primary">Recurs Annually</span>
+                            <span class="text-muted">Automation:</span>
+                            <span class="badge bg-primary">Runs Automatically Every Year</span>
                         </div>
                     </div>
 
@@ -1839,7 +1875,7 @@
             var memberName = await GetMemberNameAsync(card.MemberId);
             _confirmTitle = "Delete Key Card";
             _confirmMessage = $"Are you sure you want to PERMANENTLY DELETE Card #{card.CardNumber} for {memberName}?";
-            _confirmSubMessage = "This action CANNOT be undone. The database record will be removed completely. Only do this for accidental duplicates.";
+            _confirmSubMessage = "This action removes only this key card assignment. The member's profile, dues, and payment history will remain completely intact.";
             _confirmActionText = "Delete Permanently";
             _confirmType = ConfirmActionModal.ConfirmType.Danger;
             _confirmIcon = "bi-trash-fill";
