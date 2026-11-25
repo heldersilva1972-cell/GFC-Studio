@@ -715,6 +715,37 @@ public class UserManagementService : IUserManagementService
         _userPermissionsCache.TryRemove(userId, out _);
     }
 
+    public void EnsureMembershipPagePermissions(int userId, string grantedBy)
+    {
+        try
+        {
+            var membershipPages = _pagePermissionRepository.GetPagesByCategory("MEMBERSHIP")
+                .Where(p => p.IsActive)
+                .Select(p => p.PageId)
+                .ToList();
+
+            if (membershipPages.Any())
+            {
+                var existingPermissions = _pagePermissionRepository.GetUserPermissions(userId)
+                    .Select(p => p.PageId)
+                    .ToHashSet();
+
+                var toAdd = membershipPages.Where(id => !existingPermissions.Contains(id)).ToList();
+                foreach (var pageId in toAdd)
+                {
+                    _pagePermissionRepository.GrantPermission(userId, pageId, grantedBy);
+                }
+
+                _permissionCache.TryRemove(userId, out _);
+                _userPermissionsCache.TryRemove(userId, out _);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[UserManagement] Failed to ensure Membership page permissions for User {userId}: {ex.Message}");
+        }
+    }
+
     public void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy)
     {
         _pagePermissionRepository.CopyPermissions(sourceUserId, targetUserId, grantedBy);

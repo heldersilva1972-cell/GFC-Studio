@@ -11,6 +11,7 @@ public interface IDeviceTrustService
     Task<string> CreateDeviceTokenAsync(int userId, string userAgent, string ipAddress, int durationDays);
     Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays, string? stationName = null, string? loginMode = null, string? authorizedUserIdsCsv = null);
     Task<List<TrustedDevice>> GetAllActiveStationsAsync();
+    Task AuthorizeUserOnAllStationsAsync(int userId);
     Task<bool> IsStationTokenAsync(string token);
     Task<TrustedDevice?> GetDeviceByTokenAsync(string token);
     Task<bool> RevokeDeviceTokenAsync(string token);

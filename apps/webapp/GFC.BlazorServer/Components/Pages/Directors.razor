@@ -20,6 +20,7 @@
 @inject IPasswordPolicy PasswordPolicy
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject KeyCardLifecycleService KeyCardLifecycleService
+@inject IDeviceTrustService DeviceTrustService
 
 <PageTitle>Board Management - GFC</PageTitle>
 
@@ -601,31 +602,50 @@
         try
         {
             var existingUser = UserRepository.GetByMemberId(memberId);
-            
-            if (existingUser != null)
-            {
-                return;
-            }
-
-            var username = UserManagementService.GenerateUsernameFromMember(memberId);
             var currentUser = AuthStateProvider.GetCurrentUser();
             var createdBy = currentUser?.Username ?? "System";
-            var tempPassword = BuildDefaultDirectorPassword(memberId, username);
-            
-            UserManagementService.CreateUser(
-                username: username,
-                password: tempPassword,
-                isAdmin: false,
-                memberId: memberId,
-                notes: "Auto-created when assigned as director",
-                createdBy: createdBy,
-                passwordChangeRequired: true,
-                createdByUserId: currentUser?.UserId
-            );
+            int userId;
+
+            if (existingUser != null)
+            {
+                userId = existingUser.UserId;
+            }
+            else
+            {
+                var username = UserManagementService.GenerateUsernameFromMember(memberId);
+                var tempPassword = BuildDefaultDirectorPassword(memberId, username);
+                
+                userId = UserManagementService.CreateUser(
+                    username: username,
+                    password: tempPassword,
+                    isAdmin: false,
+                    memberId: memberId,
+                    notes: "Auto-created when assigned as director",
+                    createdBy: createdBy,
+                    passwordChangeRequired: true,
+                    createdByUserId: currentUser?.UserId
+                );
+            }
+
+            // Ensure Membership permissions are granted
+            UserManagementService.EnsureMembershipPagePermissions(userId, createdBy);
+
+            // Auto-authorize on all shared workstations
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await DeviceTrustService.AuthorizeUserOnAllStationsAsync(userId);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to auto-authorize user {UserId} on shared stations", userId);
+                }
+            });
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to create user account for director member {MemberId}", memberId);
+            Logger.LogWarning(ex, "Failed to create or configure user account for director member {MemberId}", memberId);
         }
     }
 

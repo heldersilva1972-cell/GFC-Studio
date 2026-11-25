@@ -37,6 +37,7 @@ public interface IUserManagementService
     void UpdateUserEditPreference(int userId, int pageId, bool canEdit);
     GFC.Core.DTOs.MobilePermissionDto? GetUserPagePermission(int userId, string pageRoute);
     void GrantAllPagePermissions(int userId, string grantedBy);
+    void EnsureMembershipPagePermissions(int userId, string grantedBy);
     void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy);
     
     // Default Permissions

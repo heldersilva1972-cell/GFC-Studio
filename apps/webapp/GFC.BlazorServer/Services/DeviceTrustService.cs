@@ -195,6 +195,42 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
+    public async Task AuthorizeUserOnAllStationsAsync(int userId)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var stations = await context.TrustedDevices
+                .Where(d => d.IsStation && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                .ToListAsync();
+
+            bool updatedAny = false;
+            foreach (var station in stations)
+            {
+                var ids = string.IsNullOrEmpty(station.AuthorizedUserIdsCsv)
+                    ? new List<int>()
+                    : station.AuthorizedUserIdsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToList();
+
+                if (!ids.Contains(userId))
+                {
+                    ids.Add(userId);
+                    station.AuthorizedUserIdsCsv = string.Join(",", ids);
+                    updatedAny = true;
+                }
+            }
+
+            if (updatedAny)
+            {
+                await context.SaveChangesAsync();
+                _logger.LogInformation("Authorized User {UserId} across all active shared stations", userId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to authorize User {UserId} on all shared stations", userId);
+        }
+    }
+
     public async Task<bool> IsStationTokenAsync(string token)
     {
         if (string.IsNullOrEmpty(token)) return false;
